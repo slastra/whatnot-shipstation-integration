@@ -1,0 +1,5 @@
+accounts.json
+.env
+cursors/*
+logs/*
+node_modules/
