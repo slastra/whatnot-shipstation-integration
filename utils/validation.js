@@ -27,7 +27,7 @@ class OrderValidator {
       return errors; // No need to check further if there are no items
     }
 
-    // Check pickup flag and SKUs on all items
+    // Check pickup flag on all items
     for (const edge of order.items.edges) {
       // Skip validation for pickup items
       if (edge.node.isPickup) {
@@ -35,11 +35,7 @@ class OrderValidator {
         continue;
       }
 
-      // Ensure item has a SKU
-      const sku = edge.node.variant?.sku;
-      if (!sku) {
-        errors.push(`Missing SKU for item ${edge.node.id || 'unknown'}`);
-      }
+  
     }
 
     return errors;
