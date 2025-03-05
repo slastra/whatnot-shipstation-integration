@@ -11,7 +11,7 @@ class WhatnotService {
         if (!accountId) {
             throw new Error('Account ID is required');
         }
-        
+
         this.apiKey = token;
         this.accountId = accountId;
         this.startAt = startAt;
@@ -166,16 +166,17 @@ class WhatnotService {
     }
 
     /**
-     * Update tracking information for multiple orders
-     * @param {Array<Object>} orders - Array of order objects
-     * @param {string} trackingCode - Tracking code to add
-     * @param {string} courier - Courier name
-     * @returns {Promise<Object>} Results of the tracking updates
-     */
+  * Update tracking information for multiple orders with improved error handling
+  * @param {Array<Object>} orders - Array of order objects
+  * @param {string} trackingCode - Tracking code to add
+  * @param {string} courier - Courier name
+  * @returns {Promise<Object>} Results of the tracking updates
+  */
     async updateOrdersTracking(orders, trackingCode, courier) {
         const results = {
             successful: [],
-            failed: []
+            failed: [],
+            alreadyTracked: [] // New category for "already tracked" orders
         };
 
         for (const order of orders) {
@@ -190,18 +191,40 @@ class WhatnotService {
                     result
                 });
             } catch (error) {
-                results.failed.push({
-                    orderIds: order.originalOrderIds || [order.id],
-                    trackingCode,
-                    courier,
-                    success: false,
-                    error: error.message
-                });
+                // Check for the specific "already tracked" error message
+                const isAlreadyTracked = error.message && (
+                    error.message.includes('cannot override tracking code') ||
+                    error.message.includes('already has tracking')
+                );
+
+                if (isAlreadyTracked) {
+                    // Add to "already tracked" category
+                    results.alreadyTracked.push({
+                        orderIds: order.originalOrderIds || [order.id],
+                        trackingCode,
+                        courier,
+                        message: error.message
+                    });
+                } else {
+                    // Add to regular errors
+                    results.failed.push({
+                        orderIds: order.originalOrderIds || [order.id],
+                        trackingCode,
+                        courier,
+                        success: false,
+                        error: error.message
+                    });
+                }
             }
         }
 
+        // Log summary
+        if (results.alreadyTracked.length > 0) {
+            console.log(`${results.alreadyTracked.length} orders already had tracking and were skipped`);
+        }
+
         if (results.failed.length > 0) {
-            console.error('Some tracking updates failed:', results.failed);
+            console.error(`${results.failed.length} tracking updates failed with errors`);
         }
 
         return results;

@@ -42,7 +42,7 @@ async function processAccount(account, progressCallback = null) {
     const whatnot = new WhatnotService(account.name, account.whatnotToken);
     console.log('Fetching orders from Whatnot...');
     
-    // Get orders from Whatnot - should represent 1/4 of total progress
+    // Get orders from Whatnot
     const orders = await whatnot.getOrders();
     console.log(`Fetched ${orders.length} orders from Whatnot`);
     
@@ -50,7 +50,7 @@ async function processAccount(account, progressCallback = null) {
     if (progressCallback && typeof progressCallback === 'function') {
       progressCallback({
         total: {
-          processed: 0, // Start at 0% for UI progress
+          processed: 0,
           total: orders.length,
           created: 0,
           invalid: 0,
@@ -65,7 +65,7 @@ async function processAccount(account, progressCallback = null) {
           errors: []
         }],
         phase: 'fetch',
-        logOnly: true, // Flag to indicate this is just for logging, not UI progress
+        logOnly: true,
         logMessage: `Fetched ${orders.length} orders from Whatnot`
       });
     }
@@ -82,11 +82,11 @@ async function processAccount(account, progressCallback = null) {
     
     console.log(`Validation results: ${valid.length} valid orders, ${invalid.length} invalid`);
     
-    // Report validation phase completion to logs, but don't update UI progress
+    // Report validation phase completion to logs
     if (progressCallback && typeof progressCallback === 'function') {
       progressCallback({
         total: {
-          processed: 0, // Keep at 0% for UI progress
+          processed: 0,
           total: orders.length,
           created: 0,
           invalid: invalid.length,
@@ -101,7 +101,7 @@ async function processAccount(account, progressCallback = null) {
           errors: []
         }],
         phase: 'validation',
-        logOnly: true, // Flag to indicate this is just for logging, not UI progress
+        logOnly: true,
         logMessage: `Validated orders: ${valid.length} valid, ${invalid.length} invalid`
       });
     }
@@ -121,20 +121,11 @@ async function processAccount(account, progressCallback = null) {
     // Initialize ShipStation service
     const shipstation = new ShipStationService();
     
-    // Create orders in ShipStation - this is the only phase where we'll show UI progress
-    console.log(`Creating ${valid.length} orders in ShipStation (consolidated from ${orders.length} Whatnot orders)...`);
-    
-    // Before creation, estimate the number of ShipStation orders that will be created
-    // based on account-specific consolidation rules
-    // This is a placeholder - in a real implementation, you'd calculate this based on your business logic
-    const estimatedShipStationOrderCount = Math.ceil(valid.length * 0.4); // Example: 40% of Whatnot orders after consolidation
-    console.log(`Estimated ${estimatedShipStationOrderCount} ShipStation orders after consolidation`);
-    
-    // Log this phase start but don't update UI progress yet
+    // Log this phase start
     if (progressCallback && typeof progressCallback === 'function') {
       progressCallback({
         total: {
-          processed: 0, // Start at 0% for UI progress
+          processed: 0,
           total: orders.length,
           created: 0,
           invalid: invalid.length,
@@ -150,9 +141,12 @@ async function processAccount(account, progressCallback = null) {
         }],
         phase: 'creation_start',
         logOnly: true,
-        logMessage: `Starting to create ShipStation orders. Consolidating ${valid.length} Whatnot orders into approximately ${estimatedShipStationOrderCount} ShipStation orders.`
+        logMessage: `Starting to create ShipStation orders from ${valid.length} valid Whatnot orders.`
       });
     }
+    
+    // Track actual grouped count for progress reporting
+    let actualGroupedCount = null;
     
     // Incremental progress updates during ShipStation order creation
     const results = await shipstation.createOrders(
@@ -162,24 +156,20 @@ async function processAccount(account, progressCallback = null) {
       // Progress callback for ShipStation service
       (progress) => {
         if (progressCallback && typeof progressCallback === 'function') {
-          // Get the real grouped order count once it's available
-          const actualGroupedCount = progress && progress.groupedCount ? progress.groupedCount : estimatedShipStationOrderCount;
+          // Get the real grouped order count once available
+          if (progress.groupedCount) {
+            actualGroupedCount = progress.groupedCount;
+          }
           
-          // Get the actual number of orders created so far
-          const created = progress ? progress.created : 0;
+          // Get the number of orders created so far
+          const created = progress.created || 0;
           
           // Calculate progress based on the consolidated order count
-          // creationProgress is a value between 0-1 representing how far into the creation process we are
           const creationProgress = actualGroupedCount > 0 ? 
             Math.min(created / actualGroupedCount, 1) : 0;
           
-          // Calculate UI progress based entirely on creation phase
-          // Now instead of 25-100%, it's 0-100% since we're not showing progress for the first phases
+          // Calculate UI progress based on creation phase
           const processedForUI = Math.floor(orders.length * creationProgress);
-          
-          // Log the actual calculation for debugging
-          console.log(`Progress calculation: ${created}/${actualGroupedCount} consolidated orders = ${Math.round(creationProgress * 100)}% creation progress`);
-          console.log(`UI progress: ${Math.round(creationProgress * 100)}% of total`);
           
           // Create progress update object
           const progressUpdate = {
@@ -188,7 +178,7 @@ async function processAccount(account, progressCallback = null) {
               total: orders.length,
               created: created,
               invalid: invalid.length,
-              errors: progress && progress.failed ? progress.failed : []
+              errors: progress.failed ? progress.failed.length : 0
             },
             accounts: [{
               name: account.name,
@@ -196,7 +186,7 @@ async function processAccount(account, progressCallback = null) {
               total: orders.length,
               created: created,
               invalid: invalid.length,
-              errors: progress && progress.failed ? progress.failed : []
+              errors: progress.failed ? progress.failed.length : 0
             }],
             phase: 'creation',
             consolidation: {

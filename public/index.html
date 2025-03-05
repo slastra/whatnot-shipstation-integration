@@ -4,11 +4,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Whatnot ShipStation Integration</title>
+  <title>WNSS</title>
   <script src="https://cdn.tailwindcss.com?v=4.0.0-alpha.2"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -96,11 +97,11 @@
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-3">
 
-            <h1 class="text-2xl font-bold tracking-tight">Whatnot + ShipStation</h1>
+            <h1 class="text-5xl font-bold tracking-tight">WNSS</h1>
           </div>
           <button @click="showAccountModal = true"
             class="flex items-center space-x-2 bg-primary-600 hover:bg-primary-700 rounded-lg px-4 py-2 text-white transition-colors shadow-sm">
-            <i class="fas fa-user"></i>
+            <i class="fas fa-store"></i>
             <span>Select Account</span>
           </button>
         </div>
@@ -112,7 +113,7 @@
       <div class="bg-surface-900 rounded-xl shadow-lg overflow-hidden mb-6 border border-surface-800">
         <div class="bg-surface-800 px-5 py-4 flex items-center justify-between">
           <div class="flex items-center">
-            <i class="fas fa-chart-line mr-3 text-primary-500"></i>
+            <i class="fas fa-wave-square mr-3 text-primary-500"></i>
             <h2 class="text-xl font-semibold tracking-tight">Status</h2>
           </div>
           <div x-show="selectedAccount">
@@ -126,8 +127,9 @@
         <div class="p-6">
           <!-- Waiting Status -->
           <div x-show="!isRunning" class="flex flex-col items-center justify-center py-10">
-            <i class="fas fa-hourglass-start text-5xl text-surface-600 mb-6"></i>
-            <p class="text-surface-400 text-lg">No active sync or tracking update</p>
+            <i class="fas fa-circle-check text-8xl text-surface-600 mb-6"></i>
+            <p class="text-surface-400 text-lg">Ready to sync, <span class="font-bold"
+                x-text="currentAccount?.name || 'select an account'"></span></p>
             <div class="mt-8 space-x-5 flex">
               <button @click="startSync('sync')"
                 class="bg-primary-600 hover:bg-primary-700 rounded-lg px-6 py-2.5 text-white transition-colors shadow-sm flex items-center"
@@ -152,11 +154,7 @@
                   <i class="fas" :class="syncType === 'sync' ? 'fa-sync-alt' : 'fa-truck'"></i>
                   <span x-text="syncType">sync</span>
                 </span>
-                <span
-                  class="bg-surface-700/60 text-white px-4 py-1.5 rounded-full text-sm font-medium flex items-center backdrop-blur-sm">
-                  <span class="w-2 h-2 bg-primary-400 rounded-full animate-pulse mr-2"></span>
-                  Running
-                </span>
+             
               </div>
               <div>
                 <span class="bg-surface-800 text-surface-300 px-4 py-1.5 rounded-full text-sm backdrop-blur-sm"
@@ -215,11 +213,11 @@
           </button>
         </div>
 
-        <div class="p-5">
+        <div class="p-2">
           <div id="log-container"
-            class="bg-surface-950 font-mono text-sm p-5 rounded-xl h-72 overflow-y-auto border border-surface-800">
+            class="bg-surface-950 font-mono text-sm p-5 rounded-l-xl h-72 overflow-y-auto border border-surface-800">
             <template x-for="entry in logEntries" :key="entry.timestamp + entry.message">
-              <div class="mb-2">
+              <div class="mb-1">
                 <span class="text-surface-500" x-text="`[${entry.timestamp}]`"></span>
                 <span :class="entry.textColorClass" x-text="entry.message"></span>
               </div>
@@ -241,7 +239,7 @@
         x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
         <div class="bg-surface-800 px-5 py-4 flex items-center justify-between rounded-t-xl">
           <h3 class="text-lg font-semibold flex items-center">
-            <i class="fas fa-users mr-2 text-primary-500"></i>
+            <i class="fas fa-store mr-2 text-primary-500"></i>
             Select an Account
           </h3>
           <button @click="showAccountModal = false"
@@ -299,350 +297,6 @@
       </div>
     </div>
   </div>
-  <script>
-    // Add this script before the closing </body> tag
-    function appData() {
-      return {
-        // State
-        accounts: [],
-        selectedAccount: null,
-        currentAccount: null,
-        isRunning: false,
-        syncType: 'sync',
-        syncStartTime: null,
-        progress: {
-          total: 0,
-          processed: 0,
-          successful: 0,
-          failed: 0
-        },
-        logEntries: [],
-        showAccountModal: false,
-        isLoadingAccounts: false,
-        accountError: false,
-        socket: null,
-
-        // Computed properties
-        get canStartSync() {
-          return this.selectedAccount && !this.isRunning && this.selectedAccount.enabled;
-        },
-
-        // Lifecycle hooks
-        init() {
-          this.initializeSocket();
-          this.fetchAccounts();
-          this.fetchStatus();
-        },
-
-        // Methods
-        initializeSocket() {
-          this.socket = io();
-
-          this.socket.on('connect', () => {
-            this.addLogEntry('info', 'Connected to server');
-          });
-
-          this.socket.on('disconnect', () => {
-            this.addLogEntry('error', 'Disconnected from server');
-          });
-
-          this.socket.on('status_update', (status) => {
-            console.log('CLIENT: Received status update:', status);
-            this.updateStatusFromServer(status);
-
-            // Process any logs from the server
-            if (status.logs && status.logs.length > 0) {
-              status.logs.forEach(logEntry => {
-                if (!this.logEntryExists(logEntry)) {
-                  this.processServerLogEntry(logEntry);
-                }
-              });
-            }
-
-            console.log('CLIENT: Updated local state:', this.progress);
-          });
-
-          this.socket.on('log_message', (logData) => {
-            this.processServerLogEntry(logData);
-          });
-
-          this.socket.on('sync_complete', (result) => {
-            if (result.success) {
-              this.addLogEntry('success', `${this.capitalizeFirstLetter(this.syncType)} completed successfully`);
-            } else {
-              this.addLogEntry('error', `${this.capitalizeFirstLetter(this.syncType)} failed: ${result.error}`);
-            }
-
-            this.isRunning = false;
-          });
-        },
-
-        // Add these new methods to the appData object
-        processServerLogEntry(logEntry) {
-          // Determine the log type based on the message content or provided type
-          let type = logEntry.type || 'info';
-
-          // For error messages
-          if (type === 'error' || logEntry.message.toLowerCase().includes('error') ||
-            logEntry.message.toLowerCase().includes('failed')) {
-            type = 'error';
-          }
-          // For success indicators
-          else if (logEntry.message.toLowerCase().includes('complete') ||
-            logEntry.message.toLowerCase().includes('success')) {
-            type = 'success';
-          }
-          // For warnings
-          else if (logEntry.message.toLowerCase().includes('warning')) {
-            type = 'warning';
-          }
-
-          this.addLogEntry(type, logEntry.message);
-        },
-
-        logEntryExists(logEntry) {
-          // Check if this exact log entry already exists to avoid duplicates
-          return this.logEntries.some(entry =>
-            entry.message === logEntry.message &&
-            (entry.timestamp === new Date(logEntry.timestamp).toLocaleTimeString() ||
-              entry.serverTimestamp === logEntry.timestamp)
-          );
-        },
-
-        addLogEntry(type, message) {
-          const timestamp = new Date().toLocaleTimeString();
-          let textColorClass = '';
-
-          switch (type) {
-            case 'info':
-              textColorClass = 'text-primary-400';
-              break;
-            case 'success':
-              textColorClass = 'text-green-400';
-              break;
-            case 'error':
-              textColorClass = 'text-red-400';
-              break;
-            case 'warning':
-              textColorClass = 'text-amber-400';
-              break;
-          }
-
-          // Keep track of server timestamp if available
-          const serverTimestamp = null;
-
-          this.logEntries.push({
-            timestamp,
-            serverTimestamp,
-            type,
-            message,
-            textColorClass
-          });
-
-          // Limit log entries to prevent memory issues (keep last 1000)
-          if (this.logEntries.length > 1000) {
-            this.logEntries = this.logEntries.slice(-1000);
-          }
-
-          // Scroll to bottom (in the next tick after DOM update)
-          this.$nextTick(() => {
-            const logContainer = document.getElementById('log-container');
-            if (logContainer) {
-              logContainer.scrollTop = logContainer.scrollHeight;
-            }
-          });
-        },
-
-        // Update the updateStatusFromServer method to handle log entries
-        updateStatusFromServer(status) {
-          this.isRunning = status.isRunning;
-
-          if (status.isRunning) {
-            this.syncType = status.type || 'sync';
-            this.syncStartTime = new Date(status.startTime);
-
-            // Update progress
-            const progress = status.progress;
-            this.progress = {
-              total: progress.total || 0,
-              processed: progress.processed || 0,
-              successful: progress.successful || 0,
-              failed: progress.failed || 0
-            };
-
-            // Add consolidated progress info to logs if available
-            if (status.consolidation) {
-              const consolidation = status.consolidation;
-              const message = `Processing ${consolidation.actualCreatedCount}/${consolidation.estimatedShipStationCount} consolidated orders`;
-
-              // Only add if it's not a duplicate
-              this.addUniqueLogEntry('info', message);
-            }
-
-            // Update current account if any
-            if (status.accounts && status.accounts.length > 0) {
-              this.currentAccount = status.accounts[status.accounts.length - 1];
-            }
-          }
-        },
-
-        // Helper method to avoid duplicate log entries
-        addUniqueLogEntry(type, message) {
-          // Only add if this message doesn't exist in recent entries
-          const isDuplicate = this.logEntries
-            .slice(-5) // Check only last 5 entries for performance
-            .some(entry => entry.message === message);
-
-          if (!isDuplicate) {
-            this.addLogEntry(type, message);
-          }
-        },
-
-        fetchAccounts() {
-          this.isLoadingAccounts = true;
-          this.accountError = false;
-
-          fetch('/api/accounts')
-            .then(response => {
-              if (!response.ok) {
-                throw new Error('Failed to fetch accounts');
-              }
-              return response.json();
-            })
-            .then(data => {
-              this.accounts = data.accounts;
-              this.isLoadingAccounts = false;
-              this.addLogEntry('info', `Loaded ${this.accounts.length} accounts`);
-            })
-            .catch(error => {
-              console.error('Error fetching accounts:', error);
-              this.isLoadingAccounts = false;
-              this.accountError = true;
-              this.addLogEntry('error', `Failed to load accounts: ${error.message}`);
-            });
-        },
-
-        fetchStatus() {
-          fetch('/api/status')
-            .then(response => {
-              if (!response.ok) {
-                throw new Error('Failed to fetch status');
-              }
-              return response.json();
-            })
-            .then(status => {
-              this.updateStatusFromServer(status);
-            })
-            .catch(error => {
-              console.error('Error fetching status:', error);
-              this.addLogEntry('error', `Failed to load status: ${error.message}`);
-            });
-        },
-
-
-
-        selectAccount(account) {
-          this.selectedAccount = account;
-          this.addLogEntry('info', `Selected account: ${account.name}`);
-          this.showAccountModal = false;
-        },
-
-        startSync(type) {
-          if (!this.canStartSync) return;
-
-          const endpoint = type === 'sync' ? '/api/sync' : '/api/tracking';
-          const actionName = type === 'sync' ? 'order sync' : 'tracking update';
-
-          this.isRunning = true;
-          this.syncType = type;
-          this.syncStartTime = new Date();
-          this.progress = { total: 0, processed: 0, successful: 0, failed: 0 };
-
-          this.addLogEntry('info', `Starting ${actionName} for account: ${this.selectedAccount.name}`);
-
-          fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              accountId: this.selectedAccount.id
-            })
-          })
-            .then(response => {
-              if (!response.ok) {
-                throw new Error(`Failed to start ${actionName}`);
-              }
-              return response.json();
-            })
-            .then(data => {
-              this.addLogEntry('success', `${this.capitalizeFirstLetter(actionName)} started successfully`);
-            })
-            .catch(error => {
-              console.error(`Error starting ${actionName}:`, error);
-              this.addLogEntry('error', `Failed to start ${actionName}: ${error.message}`);
-
-              // Reset running state on error
-              this.isRunning = false;
-            });
-        },
-
-
-        clearLog() {
-          this.logEntries = [];
-          this.addLogEntry('info', 'Log cleared');
-        },
-
-        calculateProgressPercentage() {
-          if (this.progress.total <= 0) return 0;
-          return Math.round((this.progress.processed / this.progress.total) * 100);
-        },
-
-        getTimeAgo(date) {
-          if (!date) return 'Just now';
-
-          const seconds = Math.floor((new Date() - date) / 1000);
-
-          if (seconds < 60) {
-            return `${seconds} sec ago`;
-          }
-
-          const minutes = Math.floor(seconds / 60);
-          if (minutes < 60) {
-            return `${minutes} min ago`;
-          }
-
-          const hours = Math.floor(minutes / 60);
-          return `${hours} hr ago`;
-        },
-
-        getAccountStatusText(account) {
-          if (!account) return 'Pending';
-
-          if (account.errors && account.errors.length > 0) {
-            return `Error (${account.errors.length} errors)`;
-          }
-
-          if (account.processed === 0) {
-            return 'No items to process';
-          }
-
-          if (account.created || account.updated) {
-            const count = account.created || account.updated;
-            const total = account.processed;
-            return `Completed (${count}/${total})`;
-          }
-
-          return 'Processing';
-        },
-
-        capitalizeFirstLetter(string) {
-          if (!string) return '';
-          return string.charAt(0).toUpperCase() + string.slice(1);
-        }
-      };
-    }
-  </script>
 
 </body>
 

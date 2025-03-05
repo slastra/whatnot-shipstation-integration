@@ -6,7 +6,7 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const DEFAULT_LOOKBACK_DAYS = 2;
+const DEFAULT_LOOKBACK_DAYS = 10;
 const SYNC_PATH = join(__dirname, '../sync_times');
 
 /**
