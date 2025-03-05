@@ -73,9 +73,10 @@ class ShipStationService {
    * @param {Array} whatnotOrders - Array of Whatnot orders
    * @param {string} whatnotToken - Whatnot API token
    * @param {string|number} storeId - ShipStation store ID
+   * @param {Function} [progressCallback] - Optional callback for reporting progress
    * @returns {Object} Results of order creation
    */
-  async createOrders(whatnotOrders, whatnotToken, storeId) {
+  async createOrders(whatnotOrders, whatnotToken, storeId, progressCallback = null) {
     if (!Array.isArray(whatnotOrders) || whatnotOrders.length === 0) {
       throw new Error('whatnotOrders must be a non-empty array');
     }
@@ -106,6 +107,23 @@ class ShipStationService {
           orderNumber: response.data.orderNumber,
           streamId: orderGroup.streamId
         });
+        
+        // Call progress callback if provided - show progress during order creation
+        if (progressCallback && typeof progressCallback === 'function') {
+          // Calculate the incremental progress from 66% to 100% as orders are created
+          const totalOrders = whatnotOrders.length;
+          const creationProgress = 0.34 * (results.successful.length + results.failed.length) / groupedOrders.length;
+          const currentProgress = 0.66 + creationProgress; // Start at 66% and progress to 100%
+          
+          progressCallback({
+            created: results.successful.length,
+            total: groupedOrders.length,
+            failed: results.failed.length,
+            // Additional progress info for the syncOrders callback
+            progressPercent: currentProgress,
+            totalOrders: totalOrders
+          });
+        }
       } catch (error) {
         const errorDetails = error.response?.data || error.message;
         console.error('ShipStation API error:', {
@@ -123,6 +141,23 @@ class ShipStationService {
           streamId: orderGroup.streamId,
           error: errorDetails
         });
+        
+        // Call progress callback on failures too
+        if (progressCallback && typeof progressCallback === 'function') {
+          // Calculate the incremental progress from 66% to 100% as orders are processed (including failures)
+          const totalOrders = whatnotOrders.length;
+          const creationProgress = 0.34 * (results.successful.length + results.failed.length) / groupedOrders.length;
+          const currentProgress = 0.66 + creationProgress; // Start at 66% and progress to 100%
+          
+          progressCallback({
+            created: results.successful.length,
+            total: groupedOrders.length,
+            failed: results.failed.length,
+            // Additional progress info for the syncOrders callback
+            progressPercent: currentProgress,
+            totalOrders: totalOrders
+          });
+        }
       }
     }
 

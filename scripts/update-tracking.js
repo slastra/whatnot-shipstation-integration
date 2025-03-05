@@ -196,14 +196,21 @@ async function processAccount(account) {
 
 /**
  * Main function to run the tracking update
+ * @param {Array<Object>} accountsToProcess - Optional array of accounts to process (default: all enabled accounts)
+ * @param {Function} progressCallback - Optional callback for reporting progress
+ * @returns {Promise<Object>} Results of the tracking update operation
  */
-async function updateTracking() {
+export async function updateTracking(accountsToProcess = null, progressCallback = null) {
   console.log('=== Starting ShipStation to Whatnot tracking update ===');
   console.log(`Time: ${new Date().toISOString()}`);
   
   try {
     // Load accounts
-    const accounts = await loadAccounts();
+    let accounts = accountsToProcess;
+    if (!accounts) {
+      accounts = await loadAccounts();
+      accounts = accounts.filter(acc => acc.enabled);
+    }
     console.log(`Loaded ${accounts.length} accounts`);
     
     const results = {
@@ -229,6 +236,14 @@ async function updateTracking() {
         name: account.name,
         ...accountResult
       });
+      
+      // Report progress if callback provided
+      if (progressCallback && typeof progressCallback === 'function') {
+        progressCallback({
+          total: results.total,
+          accounts: results.accounts
+        });
+      }
     }
     
     // Print summary
@@ -258,8 +273,10 @@ async function updateTracking() {
   }
 }
 
-// Run the tracking update
-updateTracking().catch(error => {
-  console.error('Fatal error in tracking update process:', error);
-  process.exit(1);
-});
+// Run the tracking update if called directly
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  updateTracking().catch(error => {
+    console.error('Fatal error in tracking update process:', error);
+    process.exit(1);
+  });
+}

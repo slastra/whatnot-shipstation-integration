@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Whatnot ShipStation Integration</title>
+  <script src="https://cdn.tailwindcss.com?v=4.0.0-alpha.2"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#f7fee7',
+              100: '#ecfccb',
+              200: '#d9f99d',
+              300: '#bef264',
+              400: '#a3e635',
+              500: '#84cc16',
+              600: '#65a30d',
+              700: '#4d7c0f',
+              800: '#3f6212',
+              900: '#365314',
+              950: '#1a2e05'
+            },
+            accent: {
+              50: '#faf5ff',
+              100: '#f3e8ff',
+              200: '#e9d5ff',
+              300: '#d8b4fe',
+              400: '#c084fc',
+              500: '#a855f7',
+              600: '#9333ea',
+              700: '#7e22ce',
+              800: '#6b21a8',
+              900: '#581c87',
+              950: '#3b0764'
+            },
+            surface: {
+              50: '#fafafa',
+              100: '#f4f4f5',
+              200: '#e4e4e7',
+              300: '#d4d4d8',
+              400: '#a1a1aa',
+              500: '#71717a',
+              600: '#52525b',
+              700: '#3f3f46',
+              800: '#27272a',
+              900: '#18181b',
+              950: '#09090b'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar styles */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgb(39, 39, 42);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgb(82, 82, 91);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgb(113, 113, 122);
+    }
+  </style>
+</head>
+
+<body class="font-sans antialiased text-white min-h-screen bg-gradient-to-br from-surface-950 via-surface-900 to-surface-950 relative overflow-x-hidden">
+  <!-- Enhanced gradient overlays -->
+  
+  
+  
+
+  <!-- Content goes here -->
+
+  <div class="container mx-auto px-4 py-8 max-w-5xl" x-data="appData()">
+    <header class="mb-8">
+      <nav class="bg-surface-900 rounded-xl shadow-lg p-4 border border-surface-800 backdrop-blur-sm">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            
+            <h1 class="text-2xl font-bold tracking-tight">Whatnot + ShipStation</h1>
+          </div>
+          <button @click="showAccountModal = true"
+            class="flex items-center space-x-2 bg-primary-600 hover:bg-primary-700 rounded-lg px-4 py-2 text-white transition-colors shadow-sm">
+            <i class="fas fa-user"></i>
+            <span>Select Account</span>
+          </button>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Status Card -->
+      <div class="bg-surface-900 rounded-xl shadow-lg overflow-hidden mb-6 border border-surface-800">
+        <div class="bg-surface-800 px-5 py-4 flex items-center justify-between">
+          <div class="flex items-center">
+            <i class="fas fa-chart-line mr-3 text-primary-500"></i>
+            <h2 class="text-xl font-semibold tracking-tight">Status</h2>
+          </div>
+          <div x-show="selectedAccount">
+            <span class="text-sm bg-surface-700/60 rounded-full px-4 py-1.5 backdrop-blur-sm flex items-center">
+              <span class="w-2 h-2 rounded-full bg-primary-400 mr-2"></span>
+              Account: <span x-text="selectedAccount?.name" class="ml-1 font-medium">None</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="p-6">
+          <!-- Waiting Status -->
+          <div x-show="!isRunning" class="flex flex-col items-center justify-center py-10">
+            <i class="fas fa-hourglass-start text-5xl text-surface-600 mb-6"></i>
+            <p class="text-surface-400 text-lg">No active sync or tracking update</p>
+            <div class="mt-8 space-x-5 flex">
+              <button @click="startSync('sync')"
+                class="bg-primary-600 hover:bg-primary-700 rounded-lg px-6 py-2.5 text-white transition-colors shadow-sm flex items-center"
+                :class="{'opacity-50 cursor-not-allowed': !canStartSync}" :disabled="!canStartSync">
+                <i class="fas fa-shipping-fast mr-2"></i>Sync Orders
+              </button>
+              <button @click="startSync('tracking')"
+                class="bg-accent-600 hover:bg-accent-700 rounded-lg px-6 py-2.5 text-white transition-colors shadow-sm flex items-center"
+                :class="{'opacity-50 cursor-not-allowed': !canStartSync}" :disabled="!canStartSync">
+                <i class="fas fa-truck-loading mr-2"></i>Update Tracking
+              </button>
+            </div>
+          </div>
+
+          <!-- Active Status -->
+          <div x-show="isRunning">
+            <div class="flex justify-between items-center mb-6">
+              <div class="flex items-center space-x-3">
+                <span
+                  class="px-4 py-1.5 rounded-full text-sm font-medium text-white shadow-sm flex items-center gap-1.5"
+                  :class="syncType === 'sync' ? 'bg-primary-600' : 'bg-accent-600'">
+                  <i class="fas" :class="syncType === 'sync' ? 'fa-sync-alt' : 'fa-truck'"></i>
+                  <span x-text="syncType">sync</span>
+                </span>
+                <span
+                  class="bg-surface-700/60 text-white px-4 py-1.5 rounded-full text-sm font-medium flex items-center backdrop-blur-sm">
+                  <span class="w-2 h-2 bg-primary-400 rounded-full animate-pulse mr-2"></span>
+                  Running
+                </span>
+              </div>
+              <div>
+                <span class="bg-surface-800 text-surface-300 px-4 py-1.5 rounded-full text-sm backdrop-blur-sm"
+                  x-text="`Started: ${getTimeAgo(syncStartTime)}`">Started: Just now</span>
+              </div>
+            </div>
+
+            <div class="mb-8">
+              <div class="flex justify-between mb-3">
+                <p class="font-semibold text-lg">Overall Progress</p>
+                <p class="text-sm text-surface-300 bg-surface-800/60 px-3 py-1 rounded-lg backdrop-blur-sm">
+                  <span x-text="progress.processed">0</span>/<span x-text="progress.total">0</span>
+                </p>
+              </div>
+              <div class="w-full bg-surface-800 rounded-full h-3 mb-4 overflow-hidden">
+                <div
+                  class="bg-gradient-to-r from-primary-600 to-primary-500 h-3 rounded-full transition-all duration-500 ease-out"
+                  :style="`width: ${calculateProgressPercentage()}%`"></div>
+              </div>
+              <div class="flex justify-between">
+                <div class="bg-surface-800/60 px-3 py-1.5 rounded-lg text-sm backdrop-blur-sm">
+                  <span class="text-primary-400 font-medium" x-text="progress.successful">0</span> successful
+                </div>
+                <div class="bg-surface-800/60 px-3 py-1.5 rounded-lg text-sm backdrop-blur-sm">
+                  <span class="text-red-400 font-medium" x-text="progress.failed">0</span> errors
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-surface-800/60 p-5 rounded-xl border border-surface-700/50 backdrop-blur-sm">
+              <p class="font-medium mb-2 flex items-center">
+                <i class="fas fa-user-circle mr-2 text-surface-400"></i>
+                Current Account: <span class="text-primary-400 ml-2 font-semibold"
+                  x-text="currentAccount?.name || 'None'">None</span>
+              </p>
+              <p class="text-sm text-surface-300 flex items-center">
+                <i class="fas fa-info-circle mr-2 text-surface-400"></i>
+                Status: <span x-text="getAccountStatusText(currentAccount)" class="ml-2">Pending</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log Card -->
+      <div class="bg-surface-900 rounded-xl shadow-lg overflow-hidden border border-surface-800">
+        <div class="bg-surface-800 px-5 py-4 flex items-center justify-between">
+          <div class="flex items-center">
+            <i class="fas fa-terminal mr-3 text-primary-500"></i>
+            <h2 class="text-xl font-semibold tracking-tight">Log</h2>
+          </div>
+          <button @click="clearLog"
+            class="hover:bg-surface-700 text-white px-4 py-1.5 rounded-lg flex items-center text-sm transition-colors">
+            <i class="fas fa-trash-alt mr-2"></i>
+            <span>Clear</span>
+          </button>
+        </div>
+
+        <div class="p-5">
+          <div id="log-container"
+            class="bg-surface-950 font-mono text-sm p-5 rounded-xl h-72 overflow-y-auto border border-surface-800">
+            <template x-for="entry in logEntries" :key="entry.timestamp + entry.message">
+              <div class="mb-2">
+                <span class="text-surface-500" x-text="`[${entry.timestamp}]`"></span>
+                <span :class="entry.textColorClass" x-text="entry.message"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Account Selection Modal -->
+    <div x-show="showAccountModal" @click.away="showAccountModal = false"
+      x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0"
+      x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-200"
+      x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+      class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+      <div class="bg-surface-900 rounded-xl shadow-2xl max-w-md w-full border border-surface-800"
+        x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 scale-95"
+        x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-200"
+        x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
+        <div class="bg-surface-800 px-5 py-4 flex items-center justify-between rounded-t-xl">
+          <h3 class="text-lg font-semibold flex items-center">
+            <i class="fas fa-users mr-2 text-primary-500"></i>
+            Select an Account
+          </h3>
+          <button @click="showAccountModal = false"
+            class="text-surface-400 hover:text-white transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-700">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+
+        <div class="p-6 max-h-96 overflow-y-auto">
+          <div x-show="isLoadingAccounts" class="bg-surface-800 p-5 rounded-xl text-center">
+            <i class="fas fa-circle-notch fa-spin mr-2 text-primary-500"></i> Loading accounts...
+          </div>
+          <div x-show="accountError" class="bg-red-900/50 p-5 rounded-xl text-center border border-red-800">
+            <i class="fas fa-exclamation-triangle mr-2 text-red-400"></i> Error loading accounts
+          </div>
+          <div x-show="!isLoadingAccounts && !accountError" class="space-y-3">
+            <template x-if="accounts.length === 0">
+              <div class="bg-surface-800 p-5 rounded-xl text-center">
+                <i class="fas fa-info-circle mr-2 text-primary-500"></i> No accounts found
+              </div>
+            </template>
+
+            <template x-for="account in accounts" :key="account.id">
+              <div @click="selectAccount(account)"
+                class="bg-surface-800 hover:bg-surface-700 rounded-xl p-4 cursor-pointer transition-all duration-200 flex items-center justify-between group"
+                :class="{
+                  'opacity-60': !account.enabled,
+                  'ring-2 ring-primary-500 shadow-md shadow-primary-500/10': selectedAccount && selectedAccount.id === account.id
+                }">
+                <div class="flex items-center">
+                  <div class="mr-3 w-8 h-8 flex items-center justify-center">
+                    <template x-if="account.enabled">
+                      <span class="text-primary-400"><i class="fas fa-check-circle text-lg"></i></span>
+                    </template>
+                    <template x-if="!account.enabled">
+                      <span class="text-surface-500"><i class="fas fa-ban text-lg"></i></span>
+                    </template>
+                  </div>
+                  <div x-text="account.name" class="font-medium"></div>
+                </div>
+                <div class="text-surface-400 group-hover:text-primary-400 transition-colors">
+                  <i class="fas fa-chevron-right"></i>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 bg-surface-800 rounded-b-xl">
+          <button @click="showAccountModal = false"
+            class="w-full bg-surface-700 hover:bg-surface-600 text-white rounded-lg px-4 py-3 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Add this script before the closing </body> tag
+    function appData() {
+      return {
+        // State
+        accounts: [],
+        selectedAccount: null,
+        currentAccount: null,
+        isRunning: false,
+        syncType: 'sync',
+        syncStartTime: null,
+        progress: {
+          total: 0,
+          processed: 0,
+          successful: 0,
+          failed: 0
+        },
+        logEntries: [],
+        showAccountModal: false,
+        isLoadingAccounts: false,
+        accountError: false,
+        socket: null,
+
+        // Computed properties
+        get canStartSync() {
+          return this.selectedAccount && !this.isRunning && this.selectedAccount.enabled;
+        },
+
+        // Lifecycle hooks
+        init() {
+          this.initializeSocket();
+          this.fetchAccounts();
+          this.fetchStatus();
+        },
+
+        // Methods
+        initializeSocket() {
+          this.socket = io();
+
+          this.socket.on('connect', () => {
+            this.addLogEntry('info', 'Connected to server');
+          });
+
+          this.socket.on('disconnect', () => {
+            this.addLogEntry('error', 'Disconnected from server');
+          });
+
+          this.socket.on('status_update', (status) => {
+            console.log('CLIENT: Received status update:', status);
+            this.updateStatusFromServer(status);
+            console.log('CLIENT: Updated local state:', this.progress);
+          });
+
+          this.socket.on('sync_complete', (result) => {
+            if (result.success) {
+              this.addLogEntry('success', `${this.capitalizeFirstLetter(this.syncType)} completed successfully`);
+            } else {
+              this.addLogEntry('error', `${this.capitalizeFirstLetter(this.syncType)} failed: ${result.error}`);
+            }
+
+            this.isRunning = false;
+          });
+        },
+
+        fetchAccounts() {
+          this.isLoadingAccounts = true;
+          this.accountError = false;
+
+          fetch('/api/accounts')
+            .then(response => {
+              if (!response.ok) {
+                throw new Error('Failed to fetch accounts');
+              }
+              return response.json();
+            })
+            .then(data => {
+              this.accounts = data.accounts;
+              this.isLoadingAccounts = false;
+              this.addLogEntry('info', `Loaded ${this.accounts.length} accounts`);
+            })
+            .catch(error => {
+              console.error('Error fetching accounts:', error);
+              this.isLoadingAccounts = false;
+              this.accountError = true;
+              this.addLogEntry('error', `Failed to load accounts: ${error.message}`);
+            });
+        },
+
+        fetchStatus() {
+          fetch('/api/status')
+            .then(response => {
+              if (!response.ok) {
+                throw new Error('Failed to fetch status');
+              }
+              return response.json();
+            })
+            .then(status => {
+              this.updateStatusFromServer(status);
+            })
+            .catch(error => {
+              console.error('Error fetching status:', error);
+              this.addLogEntry('error', `Failed to load status: ${error.message}`);
+            });
+        },
+
+        updateStatusFromServer(status) {
+          this.isRunning = status.isRunning;
+
+          if (status.isRunning) {
+            this.syncType = status.type || 'sync';
+            this.syncStartTime = new Date(status.startTime);
+
+            // Update progress
+            const progress = status.progress;
+            this.progress = {
+              total: progress.total || 0,
+              processed: progress.processed || 0,
+              successful: progress.successful || 0,
+              failed: progress.failed || 0
+            };
+
+            // Update current account if any
+            if (status.accounts && status.accounts.length > 0) {
+              this.currentAccount = status.accounts[status.accounts.length - 1];
+            }
+          }
+        },
+
+        selectAccount(account) {
+          this.selectedAccount = account;
+          this.addLogEntry('info', `Selected account: ${account.name}`);
+          this.showAccountModal = false;
+        },
+
+        startSync(type) {
+          if (!this.canStartSync) return;
+
+          const endpoint = type === 'sync' ? '/api/sync' : '/api/tracking';
+          const actionName = type === 'sync' ? 'order sync' : 'tracking update';
+
+          this.isRunning = true;
+          this.syncType = type;
+          this.syncStartTime = new Date();
+          this.progress = { total: 0, processed: 0, successful: 0, failed: 0 };
+
+          this.addLogEntry('info', `Starting ${actionName} for account: ${this.selectedAccount.name}`);
+
+          fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              accountId: this.selectedAccount.id
+            })
+          })
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`Failed to start ${actionName}`);
+              }
+              return response.json();
+            })
+            .then(data => {
+              this.addLogEntry('success', `${this.capitalizeFirstLetter(actionName)} started successfully`);
+            })
+            .catch(error => {
+              console.error(`Error starting ${actionName}:`, error);
+              this.addLogEntry('error', `Failed to start ${actionName}: ${error.message}`);
+
+              // Reset running state on error
+              this.isRunning = false;
+            });
+        },
+
+        addLogEntry(type, message) {
+          const timestamp = new Date().toLocaleTimeString();
+          let textColorClass = '';
+
+          switch (type) {
+            case 'info':
+              textColorClass = 'text-primary-400';
+              break;
+            case 'success':
+              textColorClass = 'text-green-400';
+              break;
+            case 'error':
+              textColorClass = 'text-red-400';
+              break;
+            case 'warning':
+              textColorClass = 'text-amber-400';
+              break;
+          }
+
+          this.logEntries.push({ timestamp, type, message, textColorClass });
+
+          // Scroll to bottom (in the next tick after DOM update)
+          this.$nextTick(() => {
+            const logContainer = document.getElementById('log-container');
+            if (logContainer) {
+              logContainer.scrollTop = logContainer.scrollHeight;
+            }
+          });
+        },
+
+        clearLog() {
+          this.logEntries = [];
+          this.addLogEntry('info', 'Log cleared');
+        },
+
+        calculateProgressPercentage() {
+          if (this.progress.total <= 0) return 0;
+          return Math.round((this.progress.processed / this.progress.total) * 100);
+        },
+
+        getTimeAgo(date) {
+          if (!date) return 'Just now';
+
+          const seconds = Math.floor((new Date() - date) / 1000);
+
+          if (seconds < 60) {
+            return `${seconds} sec ago`;
+          }
+
+          const minutes = Math.floor(seconds / 60);
+          if (minutes < 60) {
+            return `${minutes} min ago`;
+          }
+
+          const hours = Math.floor(minutes / 60);
+          return `${hours} hr ago`;
+        },
+
+        getAccountStatusText(account) {
+          if (!account) return 'Pending';
+
+          if (account.errors && account.errors.length > 0) {
+            return `Error (${account.errors.length} errors)`;
+          }
+
+          if (account.processed === 0) {
+            return 'No items to process';
+          }
+
+          if (account.created || account.updated) {
+            const count = account.created || account.updated;
+            const total = account.processed;
+            return `Completed (${count}/${total})`;
+          }
+
+          return 'Processing';
+        },
+
+        capitalizeFirstLetter(string) {
+          if (!string) return '';
+          return string.charAt(0).toUpperCase() + string.slice(1);
+        }
+      };
+    }
+  </script>
+  
+</body>
+
+</html>
