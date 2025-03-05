@@ -1,4 +1,6 @@
 accounts.json
+sync_times/*
+tracking_state/*
 .env
 cursors/*
 logs/*
