@@ -19,7 +19,7 @@ function appData() {
     isLoadingAccounts: false,
     accountError: false,
     socket: null,
-
+    logCounter: 0,
     // Computed properties
     get canStartSync() {
       return this.selectedAccount && !this.isRunning && this.selectedAccount.enabled;
@@ -83,27 +83,27 @@ function appData() {
       // If the type is already specified, respect it
       if (logEntry.type) {
         type = logEntry.type;
-      } 
+      }
       // Otherwise, try to infer from content
       else {
         const lowerMessage = logEntry.message.toLowerCase();
-        
+
         // For error messages - only if they explicitly mention an error or failure
-        if (lowerMessage.includes('error:') || 
-            lowerMessage.includes('failed:') || 
-            lowerMessage.includes('failed to')) {
+        if (lowerMessage.includes('error:') ||
+          lowerMessage.includes('failed:') ||
+          lowerMessage.includes('failed to')) {
           type = 'error';
         }
         // For success indicators - but not just any message that has "complete" in it
-        else if (lowerMessage.startsWith('success') || 
-                lowerMessage.includes('successfully') ||
-                lowerMessage.includes('completed successfully')) {
+        else if (lowerMessage.startsWith('success') ||
+          lowerMessage.includes('successfully') ||
+          lowerMessage.includes('completed successfully')) {
           type = 'success';
         }
         // For tracking/normal completion messages
         else if (lowerMessage.includes('tracking update completed') ||
-                lowerMessage.includes('completed tracking updates') ||
-                lowerMessage.startsWith('completed processing')) {
+          lowerMessage.includes('completed tracking updates') ||
+          lowerMessage.startsWith('completed processing')) {
           type = 'success';
         }
         // For warnings
@@ -124,22 +124,26 @@ function appData() {
       );
     },
 
+    // Add this property to your appData() return object:
+    
+
+    // Then replace your addLogEntry method with this:
     addLogEntry(type, message) {
       const timestamp = new Date().toLocaleTimeString();
       let textColorClass = '';
 
       // For consistent log styling, check message content in addition to type
       const lowerMessage = message.toLowerCase();
-      
+
       // Override type based on message content for special cases
-      if (type === 'info' && 
-         (lowerMessage.includes('tracking update completed') || 
+      if (type === 'info' &&
+        (lowerMessage.includes('tracking update completed') ||
           lowerMessage.includes('completed tracking updates') ||
           lowerMessage.includes('completed successfully') ||
           lowerMessage.startsWith('completed processing'))) {
         type = 'success';
       }
-      
+
       // Normal category-based styling
       switch (type) {
         case 'info':
@@ -159,7 +163,11 @@ function appData() {
       // Keep track of server timestamp if available
       const serverTimestamp = null;
 
+      // Generate a unique ID for this log entry
+      const id = ++this.logCounter;
+
       this.logEntries.push({
+        id,
         timestamp,
         serverTimestamp,
         type,
@@ -291,7 +299,7 @@ function appData() {
       this.syncType = type;
       this.syncStartTime = new Date();
       this.progress = { total: 0, processed: 0, successful: 0, failed: 0 };
-      
+
       // Ensure currentAccount is set properly when starting sync
       if (this.selectedAccount && !this.currentAccount) {
         this.currentAccount = this.selectedAccount;
@@ -334,9 +342,9 @@ function appData() {
 
     calculateProgressPercentage() {
       if (this.progress.total <= 0) return 0;
-      
+
       const percentage = Math.round((this.progress.processed / this.progress.total) * 100);
-      
+
       // Ensure percentage is a valid number between 0-100
       return Math.max(0, Math.min(100, percentage || 0));
     },

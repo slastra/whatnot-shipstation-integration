@@ -154,7 +154,7 @@
                   <i class="fas" :class="syncType === 'sync' ? 'fa-sync-alt' : 'fa-truck'"></i>
                   <span x-text="syncType">sync</span>
                 </span>
-             
+
               </div>
               <div>
                 <span class="bg-surface-800 text-surface-300 px-4 py-1.5 rounded-full text-sm backdrop-blur-sm"
@@ -216,7 +216,7 @@
         <div class="p-2">
           <div id="log-container"
             class="bg-surface-950 font-mono text-sm p-5 rounded-l-xl h-72 overflow-y-auto border border-surface-800">
-            <template x-for="entry in logEntries" :key="entry.timestamp + entry.message">
+            <template x-for="entry in logEntries" :key="entry.id">
               <div class="mb-1">
                 <span class="text-surface-500" x-text="`[${entry.timestamp}]`"></span>
                 <span :class="entry.textColorClass" x-text="entry.message"></span>
