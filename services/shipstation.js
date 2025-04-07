@@ -224,7 +224,7 @@ async createOrders(whatnotOrders, whatnotToken, storeId, progressCallback = null
               orderId: shipment.orderId,
               orderNumber: shipment.orderNumber,
               trackingNumber: shipment.trackingNumber,
-              carrierCode: shipment.carrierCode.toUpperCase() === 'UPS' ? 'UPS' : 'USPS',
+              carrierCode: shipment.carrierCode,
               createDate: shipment.createDate,
               shipDate: shipment.shipDate,
               whatnotOrderIds
