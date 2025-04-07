@@ -10,6 +10,73 @@
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* Custom scrollbar styles */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgb(39, 39, 42);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgb(82, 82, 91);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgb(113, 113, 122);
+    }
+
+    /* Basic Dialog Styles */
+    .dialog {
+      display: none;
+      /* Hidden by default */
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 80%;
+      max-width: 800px;
+      max-height: 80vh;
+      overflow-y: auto;
+      background-color: white;
+      border: 1px solid #ccc;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      z-index: 1000;
+    }
+
+    .dialog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #eee;
+      margin-bottom: 15px;
+    }
+
+    .dialog-close {
+      cursor: pointer;
+      font-size: 1.5rem;
+      border: none;
+      background: none;
+    }
+
+    .user-section {
+      margin-bottom: 20px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 15px;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 200px;
+      width: 100%;
+    }
+  </style>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -60,26 +127,6 @@
       }
     }
   </script>
-  <style>
-    /* Custom scrollbar styles */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: rgb(39, 39, 42);
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: rgb(82, 82, 91);
-      border-radius: 3px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgb(113, 113, 122);
-    }
-  </style>
 </head>
 
 <body
@@ -99,11 +146,20 @@
 
             <h1 class="text-5xl font-bold tracking-tight">WNSS</h1>
           </div>
-          <button @click="showAccountModal = true"
-            class="flex items-center space-x-2 bg-primary-600 hover:bg-primary-700 rounded-lg px-4 py-2 text-white transition-colors shadow-sm">
-            <i class="fas fa-store"></i>
-            <span>Select Account</span>
-          </button>
+          <div class="flex items-center space-x-3">
+            <!-- Counts Dialog Button -->
+            <button @click="openCountsDialog"
+              class="flex items-center space-x-2 bg-accent-600 hover:bg-accent-700 rounded-lg px-4 py-2 text-white transition-colors shadow-sm">
+              <i class="fas fa-chart-bar"></i>
+              <span>Item Counts</span>
+            </button>
+            <button @click="showAccountModal = true"
+              class="flex items-center space-x-2 bg-primary-600 hover:bg-primary-700 rounded-lg px-4 py-2 text-white transition-colors shadow-sm">
+              <i class="fas fa-store"></i>
+              <span>Select Account</span>
+            </button>
+
+          </div>
         </div>
       </nav>
     </header>
@@ -293,6 +349,90 @@
             class="w-full bg-surface-700 hover:bg-surface-600 text-white rounded-lg px-4 py-3 transition-colors">
             Cancel
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Counts Dialog (Alpine.js) -->
+    <div x-show="isCountsDialogOpen" x-transition:enter="transition ease-out duration-300"
+      x-transition:enter-start="opacity-0 transform scale-90" x-transition:enter-end="opacity-100 transform scale-100"
+      x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 transform scale-100"
+      x-transition:leave-end="opacity-0 transform scale-90" @click.away="isCountsDialogOpen = false"
+      class="fixed inset-0 bg-surface-900 bg-opacity-75 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+      style="display: none;" x-cloak>
+
+      <div
+        class="bg-surface-800 rounded-lg shadow-xl overflow-hidden max-w-3xl w-full border border-surface-700 max-h-[85vh] flex flex-col">
+        <!-- Header -->
+        <div class="flex justify-between items-center p-4 border-b border-surface-700">
+          <h2 class="text-xl font-semibold text-primary-400" x-text="selectedCountsTitle"></h2>
+          <button @click="isCountsDialogOpen = false" class="text-surface-400 hover:text-white transition-colors">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+
+        <!-- Date Range Selector -->
+        <div class="p-2 border-b border-surface-700 bg-surface-850">
+          <div class="flex space-x-1 justify-center flex-wrap">
+            <button @click="changeCountsRange('today')"
+              :class="{'bg-accent-600 text-white': selectedCountsRange === 'today', 'bg-surface-700 hover:bg-surface-600 text-surface-300': selectedCountsRange !== 'today'}"
+              class="px-3 py-1 text-sm rounded transition-colors">
+              Today
+            </button>
+            <button @click="changeCountsRange('yesterday')"
+              :class="{'bg-accent-600 text-white': selectedCountsRange === 'yesterday', 'bg-surface-700 hover:bg-surface-600 text-surface-300': selectedCountsRange !== 'yesterday'}"
+              class="px-3 py-1 text-sm rounded transition-colors">
+              Yesterday
+            </button>
+            <button @click="changeCountsRange('thisWeek')"
+              :class="{'bg-accent-600 text-white': selectedCountsRange === 'thisWeek', 'bg-surface-700 hover:bg-surface-600 text-surface-300': selectedCountsRange !== 'thisWeek'}"
+              class="px-3 py-1 text-sm rounded transition-colors">
+              This Week
+            </button>
+            <button @click="changeCountsRange('last7days')"
+              :class="{'bg-accent-600 text-white': selectedCountsRange === 'last7days', 'bg-surface-700 hover:bg-surface-600 text-surface-300': selectedCountsRange !== 'last7days'}"
+              class="px-3 py-1 text-sm rounded transition-colors">
+              Last 7 Days
+            </button>
+
+          </div>
+        </div>
+
+        <!-- Content -->
+        <div class="p-6 overflow-y-auto flex-grow">
+          <template x-if="countsLoading">
+            <p class="text-center text-surface-300">Loading data...</p>
+          </template>
+          <template x-if="countsError">
+            <p class="text-center text-red-500" x-text="`Error: ${countsError}`"></p>
+          </template>
+
+          <template x-if="!countsLoading && !countsError && countsData">
+            <div>
+              <template x-if="Object.keys(countsData.totals || {}).length === 0">
+                <p class="text-center text-surface-300">No shipment data found for this period.</p>
+              </template>
+              <template x-if="Object.keys(countsData.totals || {}).length > 0">
+                <div class="mb-4">
+                  <h3 class="text-lg font-medium text-accent-400 mb-2">Time Series Breakdown</h3>
+                  <div id="combinedChartContainer" class="h-72 w-full bg-surface-700 rounded p-2">
+                    <canvas id="combinedChart">
+                    </canvas>
+                  </div>
+                </div>
+
+                <!-- Totals List -->
+                <div class="mb-4">
+                  <h3 class="text-lg font-medium text-accent-400 mb-2">Totals per User</h3>
+                  <ul class="list-disc list-inside text-surface-300 space-y-1">
+                    <template x-for="userName in Object.keys(countsData.totals || {}).sort()" :key="userName">
+                      <li x-text="`${userName}: ${countsData.totals[userName]} items`"></li>
+                    </template>
+                  </ul>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import express from 'express';
+import bodyParser from 'body-parser';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
@@ -6,10 +7,13 @@ import { dirname, join } from 'path';
 import { readFile } from 'fs/promises';
 import 'dotenv/config';
 import cron from 'node-cron';
+import { toZonedTime } from 'date-fns-tz';
+import { getHours } from 'date-fns';
 
 // Sync and tracking modules
 import { syncOrders } from './scripts/sync-orders.js';
 import { updateTracking } from './scripts/update-tracking.js';
+import ShipStationService from './services/shipstation.js';
 
 // ======== SERVER SETUP ========
 const __filename = fileURLToPath(import.meta.url);
@@ -157,6 +161,36 @@ async function getEnabledAccounts(accountId = null) {
     throw new Error('No enabled accounts found');
   }
   return enabledAccounts;
+}
+
+// Helper function to generate all hourly UTC buckets between two dates
+function generateHourlyBuckets(startDateStr, endDateStr) {
+    const buckets = {};
+    const start = new Date(`${startDateStr}T00:00:00Z`);
+    const end = new Date(`${endDateStr}T23:59:59Z`);
+    let current = new Date(start);
+
+    while (current <= end) {
+        const bucketKey = current.toISOString().substring(0, 13) + ":00:00.000Z"; // YYYY-MM-DDTHH:00:00.000Z
+        buckets[bucketKey] = 0;
+        current.setUTCHours(current.getUTCHours() + 1);
+    }
+    return buckets;
+}
+
+// Helper function to generate all daily UTC buckets between two dates
+function generateDailyBuckets(startDateStr, endDateStr) {
+    const buckets = {};
+    const start = new Date(`${startDateStr}T00:00:00Z`);
+    const end = new Date(`${endDateStr}T00:00:00Z`);
+    let current = new Date(start);
+
+    while (current <= end) {
+        const bucketKey = current.toISOString().substring(0, 10); // YYYY-MM-DD
+        buckets[bucketKey] = 0;
+        current.setUTCDate(current.getUTCDate() + 1);
+    }
+    return buckets;
 }
 
 // ======== SYNC AND TRACKING FUNCTIONS ========
@@ -1014,6 +1048,132 @@ app.post('/api/run-scheduled', async (req, res) => {
   } catch (error) {
     console.error('Error triggering scheduled job:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Get line item counts per user for a date range across ALL stores
+app.get('/api/line-item-counts', async (req, res) => {
+  const { startDate, endDate, timezone } = req.query; // Add timezone
+ 
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate query parameters are required' });
+  }
+ 
+  // Basic date validation (YYYY-MM-DD)
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+    return res.status(400).json({ error: 'Dates must be in YYYY-MM-DD format' });
+  }
+
+  try {
+    // Instantiate ShipStation service using default credentials from .env
+    const shipstationService = new ShipStationService(); // No config needed, uses process.env
+
+    // Fetch users and shipments concurrently
+    const [users, shipments] = await Promise.all([
+      shipstationService.getUsers(),
+      // Call getShipmentsByDateRange without storeId
+      shipstationService.getShipmentsByDateRange(startDate, endDate, timezone || 'America/New_York') // Pass timezone, default to ET
+    ]);
+
+    // Map userId to full name for easier lookup
+    const userIdToFullNameMap = users.reduce((map, user) => {
+      map[user.userId] = user.name; // Use user.name here
+      return map;
+    }, {});
+
+    const userLineItemCounts = {}; // Stores counts keyed by userId
+
+    // Determine if the range is a single day
+    const isSingleDay = startDate === endDate;
+    const bucketType = isSingleDay ? 'hourly' : 'daily';
+    console.log(`Using ${bucketType} buckets for time series.`);
+
+    // Generate the complete set of buckets for the range
+    const allBucketsTemplate = bucketType === 'hourly'
+        ? generateHourlyBuckets(startDate, endDate)
+        : generateDailyBuckets(startDate, endDate);
+
+    // Initialize counts for all known users (even if they have 0 shipments)
+    users.forEach(user => {
+        userLineItemCounts[user.userId] = {
+            total: 0,
+            timeSeries: { ...allBucketsTemplate } // Initialize with all buckets set to 0
+        };
+    });
+
+    // Process shipments
+    shipments.forEach(shipment => {
+        const userId = shipment.userId;
+        const utcCreateDate = new Date(shipment.createDate);
+
+        // Convert UTC createDate to client's timezone
+        const clientTimezone = timezone || 'America/New_York';
+        const zonedCreateDate = toZonedTime(utcCreateDate, clientTimezone);
+        const hourInClientZone = getHours(zonedCreateDate);
+
+        // Check if the hour is within the 5 AM to 8 PM range (inclusive)
+        let includeInTimeSeries = false;
+        let bucketKey = '';
+        if (isSingleDay) {
+          if (hourInClientZone >= 5 && hourInClientZone <= 20) { // 5 AM to 8:59 PM
+            includeInTimeSeries = true;
+            // Use the UTC start of the hour as the bucket key
+            bucketKey = utcCreateDate.toISOString().substring(0, 13) + ":00:00.000Z"; // REVERTED
+          }
+        } else { // Multi-day range
+          includeInTimeSeries = true; // Include all items for daily buckets
+          // Use the UTC date string as the bucket key
+          bucketKey = utcCreateDate.toISOString().substring(0, 10); // YYYY-MM-DD
+        }
+
+        // Calculate total items for this shipment
+        const itemCount = (shipment.shipmentItems && Array.isArray(shipment.shipmentItems)) 
+          ? shipment.shipmentItems.reduce(
+              (sum, item) => sum + (item.quantity || 0),
+              0
+            )
+          : 0; // Default to 0 if shipmentItems is null or not an array
+
+        // Add to totals regardless of time filter
+        userLineItemCounts[userId].total += itemCount;
+
+        // Add to time series bucket *only if* it passes the filter
+        if (includeInTimeSeries) {
+          if (!userLineItemCounts[userId].timeSeries[bucketKey]) {
+            userLineItemCounts[userId].timeSeries[bucketKey] = 0;
+          }
+          userLineItemCounts[userId].timeSeries[bucketKey] += itemCount;
+        }
+    });
+
+    // Prepare response object mapping userId to userName
+    const totalsResponse = {};
+    const timeSeriesResponse = {};
+    for (const userId in userLineItemCounts) {
+        const fullName = userIdToFullNameMap[userId]; // Get the full name
+        if (fullName) { // Ensure user is still valid
+             totalsResponse[fullName] = userLineItemCounts[userId].total;
+             timeSeriesResponse[fullName] = userLineItemCounts[userId].timeSeries;
+        }
+    }
+
+    // Return the combined data
+    
+    res.json({ 
+        totals: totalsResponse, 
+        timeSeries: timeSeriesResponse,
+        bucketType: bucketType
+    });
+
+  } catch (error) {
+    console.error(`Error fetching line item counts across all stores:`, error);
+    // Check for specific ShipStation errors if needed
+    if (error.message.includes('Invalid ShipStation API credentials') || error.response?.status === 401) {
+       res.status(401).json({ error: 'Invalid ShipStation API credentials configured in .env' });
+    } else {
+       res.status(500).json({ error: 'Failed to retrieve line item counts', details: error.message });
+    }
   }
 });
 
